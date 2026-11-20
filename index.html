@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -161,7 +161,7 @@
         h1 {
             font-size: 28px;
             font-weight: 600;
-            color: red;
+            color: #1f2937;
             margin-bottom: 8px;
         }
 
@@ -1397,7 +1397,7 @@
 		            <!-- Controls Container -->
             <div id="controls-container">
                 <div class="main-controls">
-				<span style="font-weight: 600; color: #1f2937; display: flex; align-items: center; margin-right: 12px;">xTrove vf.1.0</span>
+				<span style="font-weight: 600; color: #1f2937; display: flex; align-items: center; margin-right: 12px;">Trove V1.0</span>
                     <button class="btn-standard btn-primary" id="card-form-btn" title="Open Card Form">+ Card</button>
                     <button class="btn-standard btn-primary" id="display-cards-btn" title="Display Cards" style="display: none;">Display Cards</button>
                     <button class="btn-standard btn-primary" id="cycle-view-btn" title="Cycle through Active → Completed → Deleted cards">↻ Views</button>
@@ -1408,6 +1408,7 @@
                         <button class="btn-standard btn-primary" id="configure">Configure</button>
                         <button class="btn-standard btn-primary" id="toggle-print">Print Ops</button>
                         <button class="btn-standard btn-primary" id="toggle-bulk">Bulk Ops</button>
+                        <button class="btn-standard btn-primary" id="toggle-storage">🔄 Sync</button>
                         <button class="btn-standard btn-primary" id="toggle-filtersort-btn">Filter/Sort</button>
                         <button class="btn-standard btn-primary" id="restore-btn" title="Clear all filters and sorting" style="display:none;">Restore</button>
                         <button class="btn-standard btn-primary" id="renum-btn" title="Renumber cards in current display order" disabled style="opacity:0.4; cursor:not-allowed;">Renum</button>
@@ -1511,8 +1512,25 @@
                 
                 <!-- Storage Controls Section (Initially Hidden) -->
                 <div id="storage-controls" class="filter-section is-hidden" style="margin-top: 12px;">
-                    <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 12px; color: #1f2937;">Storage Options</h3>
-                    <p style="font-size: 13px; color: #6b7280;">Configure storage settings here...</p>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <h3 style="font-size: 14px; font-weight: 600; margin: 0; color: #1f2937;">Sync (GitHub Gist)</h3>
+                        <button id="close-storage-controls" class="btn-standard" style="width: 32px; height: 32px; padding: 0; background: #ef4444; color: white; border: none;">✕</button>
+                    </div>
+                    <p style="font-size: 12px; color: #6b7280; margin: 0 0 10px;">Manually pull, merge, and push cards to a private Gist shared between your devices. The PAT and Gist ID stay on this device only (localStorage) — Anthropic never sees them.</p>
+                    <div style="display: flex; flex-direction: column; gap: 8px; max-width: 420px;">
+                        <label style="font-size: 13px; color: #374151;">Gist-scoped Personal Access Token
+                            <input type="password" id="sync-pat-input" placeholder="ghp_..." style="width: 100%; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px; box-sizing: border-box; margin-top: 4px;">
+                        </label>
+                        <label style="font-size: 13px; color: #374151;">Gist ID
+                            <input type="text" id="sync-gist-input" placeholder="e.g. 8f3a2c1b9e4d5f6a7b8c" style="width: 100%; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px; box-sizing: border-box; margin-top: 4px;">
+                        </label>
+                        <div style="display: flex; gap: 8px; align-items: center; margin-top: 4px;">
+                            <button id="sync-save-settings-btn" class="btn-standard btn-secondary btn-small">Save Settings</button>
+                            <button id="sync-now-btn" class="btn-standard btn-primary">Sync Now</button>
+                        </div>
+                        <div id="sync-last-at" style="font-size: 12px; color: #6b7280; margin-top: 4px;">Never synced</div>
+                        <button id="sync-selftest-btn" class="btn-standard btn-secondary btn-small" style="align-self: flex-start; margin-top: 4px;" title="Runs the Phase 4 conflict scenarios locally, no network or second device needed">Run Merge Self-Test</button>
+                    </div>
                 </div>
                 
                 <!-- Bulk Controls Section (Initially Hidden) -->
@@ -1726,7 +1744,7 @@
                             </div>
 
                             <div id="attachments-field" class="form-field">
-                                <label class="form-label">xAttachments</label>
+                                <label class="form-label">Attachments</label>
                                 <div class="field-input-wrapper">
                                     <div id="attachments-items" class="array-input-container">
                                         <div class="array-item">
@@ -1835,8 +1853,26 @@
             static info(message) { this.show(message, 'info'); }
         }
 
+        // Fallback UUID generator for contexts without crypto.randomUUID (e.g. non-secure origins)
+        function generateUuid() {
+            if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+                return window.crypto.randomUUID();
+            }
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+
         class Card {
             constructor(data = {}) {
+                // Stable cross-device identity — assigned once, never regenerated for an existing card.
+                // This is distinct from `seqno`, which is a local display-order ordinal that can be
+                // freely reassigned (e.g. by drag-reorder or post-merge renumbering) without affecting identity.
+                this.id = data.id || generateUuid();
+                // Last-modified timestamp (ms). Used by the sync module to resolve merge conflicts.
+                this.updated_at = data.updated_at || Date.now();
                 this.seqno = data.seqno != null ? data.seqno : undefined;
                 this.mode = data.mode || 'Task';
                 this.topic = data.topic || '';
@@ -1875,6 +1911,8 @@
 
             toJSON() {
                 return {
+                    id: this.id,
+                    updated_at: this.updated_at,
                     seqno: this.seqno,
                     mode: this.mode,
                     topic: this.topic,
@@ -1951,6 +1989,235 @@
                     req.onsuccess = (e) => resolve(e.target.result);
                     req.onerror = (e) => reject(e.target.error);
                 });
+            }
+        };
+
+        // Sync module — manual, device-to-device, via a private GitHub Gist.
+        // Scope decision (documented, not a default anyone has to guess at): the `files`
+        // object store (base64 attachment blobs) is deliberately excluded from the synced
+        // payload. Gist content has practical size limits and attachments can be large;
+        // attachments stay device-local. Only card records sync.
+        const Sync = {
+            KEYS: {
+                pat:    'xtrove_sync_pat',
+                gistId: 'xtrove_sync_gist_id',
+                lastAt: 'xtrove_sync_last_at'
+            },
+            FILENAME: 'xtrove-sync.json',
+
+            getPat()        { return localStorage.getItem(this.KEYS.pat) || ''; },
+            getGistId()     { return localStorage.getItem(this.KEYS.gistId) || ''; },
+            getLastSyncAt() { return localStorage.getItem(this.KEYS.lastAt) || ''; },
+            setLastSyncAt(iso) { localStorage.setItem(this.KEYS.lastAt, iso); },
+
+            saveSettings(pat, gistId) {
+                if (pat)    localStorage.setItem(this.KEYS.pat, pat);       else localStorage.removeItem(this.KEYS.pat);
+                if (gistId) localStorage.setItem(this.KEYS.gistId, gistId); else localStorage.removeItem(this.KEYS.gistId);
+            },
+
+            initSettingsForm() {
+                const patInput  = document.getElementById('sync-pat-input');
+                const gistInput = document.getElementById('sync-gist-input');
+                if (patInput)  patInput.value  = this.getPat();
+                if (gistInput) gistInput.value = this.getGistId();
+                this.updateStatusDisplay();
+            },
+
+            updateStatusDisplay() {
+                const el = document.getElementById('sync-last-at');
+                if (!el) return;
+                const last = this.getLastSyncAt();
+                el.textContent = last ? `Last synced: ${new Date(last).toLocaleString()}` : 'Never synced';
+            },
+
+            // Flatten a CardManager's three status-partitioned arrays into one record list,
+            // tagging each record with its status so a merge can put it back in the right array.
+            toRecordArray(manager) {
+                const tag = (arr, status) => arr.map(c => ({ ...c.toJSON(), status }));
+                return [
+                    ...tag(manager.activeCards, 'active'),
+                    ...tag(manager.completedCards, 'completed'),
+                    ...tag(manager.deletedCards, 'deleted')
+                ];
+            },
+
+            async pullRemote(gistId, pat) {
+                const res = await fetch(`https://api.github.com/gists/${gistId}`, {
+                    headers: { Authorization: `token ${pat}`, Accept: 'application/vnd.github+json' }
+                });
+                if (!res.ok) throw new Error(`Gist fetch failed: ${res.status} ${res.statusText}`);
+                const gist = await res.json();
+                const file = gist.files && gist.files[this.FILENAME];
+                if (!file) return { records: [] }; // first sync — nothing pushed from any device yet
+                let content = file.content;
+                if (file.truncated) {
+                    // Gist API truncates content over ~1MB and serves the rest from raw_url
+                    const rawRes = await fetch(file.raw_url);
+                    content = await rawRes.text();
+                }
+                try {
+                    return JSON.parse(content);
+                } catch {
+                    throw new Error('Remote gist content is not valid JSON');
+                }
+            },
+
+            async pushRemote(gistId, pat, payload) {
+                const res = await fetch(`https://api.github.com/gists/${gistId}`, {
+                    method: 'PATCH',
+                    headers: {
+                        Authorization: `token ${pat}`,
+                        Accept: 'application/vnd.github+json',
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        files: { [this.FILENAME]: { content: JSON.stringify(payload, null, 2) } }
+                    })
+                });
+                if (!res.ok) throw new Error(`Gist push failed: ${res.status} ${res.statusText}`);
+                return res.json();
+            },
+
+            // Field-level merge of two versions of the same record (matched by `id`).
+            // The record with the newer `updated_at` wins wholesale, EXCEPT: any field that is
+            // missing/null on the winner gets backfilled from the loser. This is what keeps a
+            // reduced-field payload from nulling out data it never touched, without needing
+            // per-field timestamps the app doesn't track — the app only records one updated_at
+            // per whole record (see Card class / createCard/updateCard/deleteCard/toggleComplete),
+            // so per-record comparison is what the data actually supports; the backfill step is
+            // the safety net the spec asked for on top of that.
+            mergeOne(a, b) {
+                if (!a) return b;
+                if (!b) return a;
+                const [winner, loser] = (a.updated_at || 0) >= (b.updated_at || 0) ? [a, b] : [b, a];
+                const merged = { ...winner };
+                for (const key of Object.keys(loser)) {
+                    if (merged[key] === undefined || merged[key] === null) merged[key] = loser[key];
+                }
+                return merged;
+            },
+
+            // Union of local + remote by id, merged record-by-record.
+            mergeRecordSets(localRecords, remoteRecords) {
+                const byId = new Map();
+                for (const r of localRecords) byId.set(r.id, r);
+                for (const r of remoteRecords) byId.set(r.id, this.mergeOne(byId.get(r.id), r));
+                return Array.from(byId.values());
+            },
+
+            // Split a flat merged record array back into the three arrays a CardManager expects.
+            // seqno is reassigned sequentially across the merged set — it's a local display
+            // ordinal, not sync identity (that's `id`), so two devices independently incrementing
+            // it is exactly the collision this step erases rather than propagates.
+            applyMerged(manager, mergedRecords) {
+                const active = [], completed = [], deleted = [];
+                for (const r of mergedRecords) {
+                    const card = new Card(r);
+                    (r.status === 'completed' ? completed : r.status === 'deleted' ? deleted : active).push(card);
+                }
+                const bySeqno = (x, y) => (x.seqno ?? 0) - (y.seqno ?? 0);
+                active.sort(bySeqno); completed.sort(bySeqno); deleted.sort(bySeqno);
+                let next = 1;
+                for (const c of [...active, ...completed, ...deleted]) c.seqno = next++;
+                manager.activeCards    = active;
+                manager.completedCards = completed;
+                manager.deletedCards   = deleted;
+                manager.nextSeqno      = next;
+            },
+
+            async run(manager) {
+                const pat = this.getPat();
+                const gistId = this.getGistId();
+                if (!pat || !gistId) {
+                    Toast.error('Add a PAT and Gist ID in Sync settings first');
+                    return;
+                }
+                try {
+                    Toast.info('Syncing…');
+                    const remote = await this.pullRemote(gistId, pat);
+                    const remoteRecords = Array.isArray(remote.records) ? remote.records : [];
+                    const localRecords = this.toRecordArray(manager);
+                    const merged = this.mergeRecordSets(localRecords, remoteRecords);
+
+                    // Apply merge results into the in-memory arrays FIRST. saveToStorage() clears
+                    // and rewrites the 'cards' store from activeCards/completedCards/deletedCards
+                    // on every save — writing merged records straight to IndexedDB would just be
+                    // overwritten by the next app-triggered save if we skipped this step.
+                    this.applyMerged(manager, merged);
+                    await manager.saveToStorage();
+                    manager.render();
+                    if (manager.syncUndoRedoButtons) manager.syncUndoRedoButtons();
+
+                    const payload = { records: merged, syncedAt: new Date().toISOString() };
+                    await this.pushRemote(gistId, pat, payload);
+
+                    const now = new Date().toISOString();
+                    this.setLastSyncAt(now);
+                    this.updateStatusDisplay();
+                    Toast.success(`Synced — ${merged.length} cards`);
+                } catch (error) {
+                    console.error('Sync error:', error);
+                    Toast.error('Sync failed: ' + error.message);
+                }
+            },
+
+            // Phase 4 — merge validation, run locally with no network and no second browser.
+            // Exercises the three required scenarios against the actual mergeOne/mergeRecordSets
+            // functions used by run(). Call from the console: Sync.selfTest()
+            selfTest() {
+                const results = [];
+                const check = (name, expected, actual) => {
+                    const pass = JSON.stringify(expected) === JSON.stringify(actual);
+                    results.push({ name, pass, expected, actual });
+                    console[pass ? 'log' : 'error'](`${pass ? 'PASS' : 'FAIL'} — ${name}`, pass ? '' : { expected, actual });
+                };
+
+                // Scenario 1: concurrent edit to the same task on two devices.
+                // Expected: the edit with the later updated_at wins wholesale.
+                {
+                    const local  = { id: 'a', topic: 'Local edit',  status: 'active', updated_at: 2000, seqno: 1 };
+                    const remote = { id: 'a', topic: 'Remote edit', status: 'active', updated_at: 1000, seqno: 1 };
+                    check('concurrent edit — newer wins', 'Local edit', Sync.mergeOne(local, remote).topic);
+                }
+
+                // Scenario 2: delete-vs-update race — one device deletes, the other edits the
+                // same card, and the delete happens to be timestamped later.
+                // Expected: `status: 'deleted'` wins (tombstone is just a normal field on the
+                // record with a later updated_at — no separate delete-always-wins special case).
+                {
+                    const deleted = { id: 'b', topic: 'Old topic', status: 'deleted', updated_at: 3000, seqno: 2 };
+                    const updated = { id: 'b', topic: 'New topic', status: 'active',  updated_at: 2500, seqno: 2 };
+                    check('delete-vs-update race — later delete wins', 'deleted', Sync.mergeOne(deleted, updated).status);
+                }
+                // ...and the inverse: an update timestamped AFTER a stale delete should undelete.
+                {
+                    const deleted = { id: 'c', topic: 'Old topic', status: 'deleted', updated_at: 1000, seqno: 3 };
+                    const updated = { id: 'c', topic: 'New topic', status: 'active',  updated_at: 1500, seqno: 3 };
+                    check('delete-vs-update race — later update revives', 'active', Sync.mergeOne(deleted, updated).status);
+                }
+
+                // Scenario 3: out-of-order timestamps arriving in an unexpected order shouldn't
+                // matter — merge is commutative regardless of which record is passed as a/b.
+                {
+                    const x = { id: 'd', topic: 'X', status: 'active', updated_at: 5000, seqno: 4 };
+                    const y = { id: 'd', topic: 'Y', status: 'active', updated_at: 4000, seqno: 4 };
+                    check('order independence — a,b', 'X', Sync.mergeOne(x, y).topic);
+                    check('order independence — b,a', 'X', Sync.mergeOne(y, x).topic);
+                }
+
+                // Bonus: reduced field set must not null out fields the winner is silent on.
+                {
+                    const full    = { id: 'e', topic: 'Full',  category: 'Work', tags: ['x'], status: 'active', updated_at: 1000, seqno: 5 };
+                    const partial = { id: 'e', topic: 'Newer', status: 'active', updated_at: 2000, seqno: 5 }; // no category/tags at all
+                    const result = Sync.mergeOne(partial, full);
+                    check('reduced field set — topic from winner', 'Newer', result.topic);
+                    check('reduced field set — category backfilled', 'Work', result.category);
+                    check('reduced field set — tags backfilled', ['x'], result.tags);
+                }
+
+                const passed = results.filter(r => r.pass).length;
+                console.log(`Sync.selfTest: ${passed}/${results.length} passed`);
+                return results;
             }
         };
 
@@ -2114,6 +2381,7 @@
                         // Restore to the originating list based on completed flag
                         const restored = new Card(entry.data);
                         restored.seqno = entry.data.seqno;
+                        restored.updated_at = Date.now();
                         const destList = restored.completed ? this.completedCards : this.activeCards;
                         destList.push(restored);
                         destList.sort((a, b) => a.seqno - b.seqno);
@@ -2129,6 +2397,7 @@
                             if (idx !== -1) {
                                 const restored = new Card(entry.data);
                                 restored.seqno = seqno;
+                                restored.updated_at = Date.now();
                                 list[idx] = restored;
                                 this._categoriesDirty = true;
                                 this.debouncedSave();
@@ -2157,6 +2426,7 @@
                     case 'create': {
                         const card = new Card(entry.data);
                         card.seqno = entry.data.seqno;
+                        card.updated_at = Date.now();
                         this.activeCards.push(card);
                         this.activeCards.sort((a, b) => a.seqno - b.seqno);
                         this._categoriesDirty = true;
@@ -2175,6 +2445,7 @@
                         }
                         if (srcList) {
                             const [card] = srcList.splice(srcIdx, 1);
+                            card.updated_at = Date.now();
                             this.deletedCards.push(card);
                             this.deletedCards.sort((a, b) => a.seqno - b.seqno);
                             this._categoriesDirty = true;
@@ -2190,6 +2461,7 @@
                             if (idx !== -1) {
                                 const restored = new Card(entry.data);
                                 restored.seqno = seqno;
+                                restored.updated_at = Date.now();
                                 list[idx] = restored;
                                 this._categoriesDirty = true;
                                 this.debouncedSave();
@@ -2525,13 +2797,20 @@
                     const meta        = records.find(r => r.key === 'meta');
                     const cardRecords = records.filter(r => r.key.startsWith('card:'));
 
+                    // Records written before the UUID migration have no `id` field and were keyed
+                    // by seqno (`card:${seqno}`). Detect that once, then rewrite everything below
+                    // under `card:${id}` keys so two devices can never collide on a shared seqno.
+                    const needsIdMigration = cardRecords.some(r => !r.id);
+
                     this.activeCards    = [];
                     this.completedCards = [];
                     this.deletedCards   = [];
 
                     for (const r of cardRecords) {
                         const c = new Card(r);
-                        c.seqno = parseInt(r.key.replace('card:', ''), 10);
+                        // seqno now lives on the record itself; fall back to the legacy key-encoded
+                        // value only for records saved before that field existed.
+                        c.seqno = r.seqno != null ? r.seqno : parseInt(r.key.replace('card:', ''), 10);
                         if (r.status === 'completed')     this.completedCards.push(c);
                         else if (r.status === 'deleted')  this.deletedCards.push(c);
                         else                              this.activeCards.push(c);
@@ -2550,6 +2829,13 @@
                     }
 
                     console.log(`Loaded from IndexedDB: ${this.activeCards.length} active, ${this.completedCards.length} completed, ${this.deletedCards.length} deleted`);
+
+                    if (needsIdMigration) {
+                        // Card constructor already backfilled id/updated_at above; persist that
+                        // once so the store's keys move from card:${seqno} to card:${id}.
+                        await this.saveToStorage();
+                        console.log('Migrated card records to UUID-keyed storage');
+                    }
                 } catch (error) {
                     console.error('Error loading data:', error);
                     Toast.error('Error loading data');
@@ -2574,13 +2860,13 @@
                         store.clear();
 
                         for (const card of this.activeCards) {
-                            store.put({ key: `card:${card.seqno}`, status: 'active', ...card.toJSON() });
+                            store.put({ key: `card:${card.id}`, status: 'active', ...card.toJSON() });
                         }
                         for (const card of this.completedCards) {
-                            store.put({ key: `card:${card.seqno}`, status: 'completed', ...card.toJSON() });
+                            store.put({ key: `card:${card.id}`, status: 'completed', ...card.toJSON() });
                         }
                         for (const card of this.deletedCards) {
-                            store.put({ key: `card:${card.seqno}`, status: 'deleted', ...card.toJSON() });
+                            store.put({ key: `card:${card.id}`, status: 'deleted', ...card.toJSON() });
                         }
                         store.put({ key: 'meta', nextSeqno: this.nextSeqno, layoutMode: this.layoutMode });
 
@@ -2599,7 +2885,7 @@
                 if (this._saveTimer) clearTimeout(this._saveTimer);
                 this._saveTimer = setTimeout(() => {
                     this._saveTimer = null;
-                    this.debouncedSave();
+                    this.saveToStorage();
                 }, 150);
             }
 
@@ -2607,9 +2893,10 @@
                 const card = new Card(cardData);
                 card.validate();
                 card.seqno = this.nextSeqno++;
+                card.updated_at = Date.now();
                 
                 // Record for undo
-                this.recordAction('create', { ...cardData, seqno: card.seqno });
+                this.recordAction('create', { ...cardData, seqno: card.seqno, id: card.id, updated_at: card.updated_at });
                 
                 // New cards go to activeCards
                 this.activeCards.push(card);
@@ -2649,6 +2936,10 @@
                 const card = new Card(cardData);
                 card.validate();
                 card.seqno = seqno;
+                // The edit form doesn't carry id/updated_at — preserve the original identity
+                // and stamp the new modification time explicitly.
+                card.id = cardList[index].id;
+                card.updated_at = Date.now();
                 cardList[index] = card;
                 this._categoriesDirty = true;
                 this.debouncedSave();
@@ -2676,6 +2967,7 @@
                     
                     // Move to deletedCards (soft delete)
                     const [card] = sourceList.splice(index, 1);
+                    card.updated_at = Date.now();
                     this.deletedCards.push(card);
                     this.deletedCards.sort((a, b) => a.seqno - b.seqno);
                     this._categoriesDirty = true;
@@ -3002,6 +3294,35 @@
                 document.getElementById('toggle-bulk').addEventListener('click', () => {
                     const bulkControls = document.getElementById('bulk-controls');
                     bulkControls.classList.toggle('is-hidden');
+                });
+
+                document.getElementById('toggle-storage').addEventListener('click', () => {
+                    const storageControls = document.getElementById('storage-controls');
+                    storageControls.classList.toggle('is-hidden');
+                    Sync.initSettingsForm();
+                });
+
+                document.getElementById('close-storage-controls').addEventListener('click', () => {
+                    document.getElementById('storage-controls').classList.add('is-hidden');
+                });
+
+                document.getElementById('sync-save-settings-btn').addEventListener('click', () => {
+                    const pat = document.getElementById('sync-pat-input').value.trim();
+                    const gistId = document.getElementById('sync-gist-input').value.trim();
+                    Sync.saveSettings(pat, gistId);
+                    Toast.success('Sync settings saved');
+                });
+
+                document.getElementById('sync-now-btn').addEventListener('click', () => Sync.run(this));
+
+                document.getElementById('sync-selftest-btn').addEventListener('click', () => {
+                    const results = Sync.selfTest();
+                    const passed = results.filter(r => r.pass).length;
+                    if (passed === results.length) {
+                        Toast.success(`Merge self-test: ${passed}/${results.length} passed — see console for detail`);
+                    } else {
+                        Toast.error(`Merge self-test: ${passed}/${results.length} passed — see console for failures`);
+                    }
                 });
 
                 document.getElementById('exit-app').addEventListener('click', () => this.exitApp());
@@ -5078,6 +5399,7 @@
                 
                 // Toggle the completed status
                 card.completed = !card.completed;
+                card.updated_at = Date.now();
                 
                 // Add to destination array in correct seqno order
                 destinationList.push(card);
@@ -5348,12 +5670,14 @@
                 return html;
             }
 
-            exportData() {
+            async exportData() {
                 try {
+                    const files = await DB.getAll('files');
                     const data = {
                         activeCards:    this.activeCards.map(c => c.toJSON()),
                         completedCards: this.completedCards.map(c => c.toJSON()),
                         deletedCards:   this.deletedCards.map(c => c.toJSON()),
+                        files:          files, // full 'files' store (base64 attachment blobs) — rollback baseline
                         nextSeqno:      this.nextSeqno,
                         exportedAt:     new Date().toISOString()
                     };
@@ -5539,9 +5863,18 @@
                             
                             this.nextSeqno = importSeqno;
                             this._categoriesDirty = true;
-                            this.debouncedSave();
-                            this.render();
-                            Toast.success('Data imported successfully');
+
+                            // Restore the files store if present (exports written before the
+                            // Phase 1 baseline fix won't have this key — nothing to restore then).
+                            const restoreFiles = Array.isArray(data.files)
+                                ? Promise.all(data.files.map(f => DB.put('files', f)))
+                                : Promise.resolve();
+
+                            restoreFiles.finally(() => {
+                                this.debouncedSave();
+                                this.render();
+                                Toast.success('Data imported successfully');
+                            });
                         }
                     } catch (error) {
                         console.error('Import error:', error);
@@ -5568,6 +5901,8 @@
                         this.activeCards = [];
                         this.completedCards = [];
                         this.deletedCards = [];
+                        // nextSeqno is a local display-order counter only (card identity is the
+                        // UUID `id`, generated fresh per card) — resetting it to 1 is still correct.
                         this.nextSeqno = 1;
                         this._categoriesDirty = true;
                         this.debouncedSave();
